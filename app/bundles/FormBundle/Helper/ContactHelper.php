@@ -116,71 +116,10 @@ class ContactHelper
     {
         $this->form = $submission->getForm();
 
-        $contact = $this->getContact($fieldMappedData);
+        $this->setContactFromMappedData($fieldMappedData);
+        $this->prepareAndSaveContact($ipAddress);
+        $this->setCompanyFromMappedData($fieldMappedData);
 
-        $inKioskMode   = $this->form->isInKioskMode();
-
-        //no lead was found by a mapped email field so create a new one
-        if ($this->contact->isNewlyCreated()) {
-            if (!$inKioskMode) {
-                $this->contact->addIpAddress($ipAddress);
-                $this->logger->debug('FORM: Associating '.$ipAddress->getIpAddress().' to contact');
-            }
-        } elseif (!$inKioskMode) {
-            $this->contactIpAddresses = $this->contact->getIpAddresses();
-            if (!$this->contactIpAddresses->contains($ipAddress)) {
-                $this->contact->addIpAddress($ipAddress);
-
-                $this->logger->debug('FORM: Associating '.$ipAddress->getIpAddress().' to contact');
-            }
-        }
-
-        //set the mapped fields
-        $this->leadModel->setFieldValues($this->contact, $mappedData, false, true, true);
-
-        // last active time
-        $this->contact->setLastActive(new \DateTime());
-
-        //create a new lead
-        $this->contact->setManipulator(
-            new LeadManipulator(
-                'form',
-                'submission',
-                $this->form->getId(),
-                $this->form->getName()
-            )
-        );
-        $this->leadModel->saveEntity($this->contact, false);
-
-        if (!$inKioskMode) {
-            // Set the current lead which will generate tracking cookies
-            $this->contactTracker->setTrackedContact($this->contact);
-        } else {
-            // Set system current lead which will still allow execution of events without generating tracking cookies
-            $this->contactTracker->setSystemContact($this->contact);
-        }
-
-        $companyFieldMatches = $this->mapData($fieldMappedData, $this->fieldModel->getFieldListWithProperties('company'));
-        if (!empty($companyFieldMatches)) {
-            list($company, $this->contactAdded, $companyEntity) = IdentifyCompanyHelper::identifyLeadsCompany(
-                $companyFieldMatches,
-                $this->contact,
-                $this->companyModel
-            );
-            if ($this->contactAdded) {
-                $this->contact->addCompanyChangeLogEntry('form', 'Identify Company', 'Lead added to the company, '.$company['companyname'], $company['id']);
-            }
-
-            if (!empty($company) and $companyEntity instanceof Company) {
-                // Save after the lead in for new leads created through the API and maybe other places
-                $this->companyModel->addLeadToCompany($companyEntity, $this->contact);
-                $this->leadModel->setPrimaryCompany($companyEntity->getId(), $this->contact->getId());
-            }
-        }
-
-        // Get updated lead if applicable with tracking ID
-        /* @var Lead $this->contact */
-        $this->contact          = $this->contactTracker->getContact();
         //set tracking ID for stats purposes to determine unique hits
         $submission->setTrackingId($this->contactTracker->getTrackingId())
             ->setLead($this->contact);
@@ -188,36 +127,73 @@ class ContactHelper
         return $this->contact;
     }
 
-    private function getContact()
+    /**
+     * @param array $fieldMappedData
+     */
+    private function setContactFromMappedData(array $fieldMappedData)
     {
+        // Default to a new contact
+        $this->contact = new Lead();
+        $this->contact->setNewlyCreated(true);
+        $trackedUniqueFieldData = [];
+
         if (!$this->form->isInKioskMode()) {
             // Default to currently tracked lead
             $this->contact = $this->contactTracker->getContact();
 
             $this->logger->debug('FORM: Not in kiosk mode so using current contact ID #'.$this->contact->getId());
 
-            return;
+            $trackedContactData     = $this->contact->getProfileFields();
+            $trackedUniqueFieldData = $this->getUniqueFieldValues($trackedContactData);
         }
 
-        // Default to a new lead in kiosk mode
-        $this->contact = new Lead();
-        $this->contact->setNewlyCreated(true);
+        $mappedData            = $this->mapData($fieldMappedData, $this->fieldModel->getFieldListWithProperties('lead'));
+        $mappedUniqueFieldData = $this->getUniqueFieldValues($mappedData);
 
-        $this->logger->debug('FORM: In kiosk mode so assuming a new contact');
+        $this->checkForExistingContact($mappedUniqueFieldData, $trackedUniqueFieldData);
+
+        // Bind form data to the contact's profile
+        $this->leadModel->setFieldValues($this->contact, $mappedData, false, true, true);
     }
 
     /**
-     * @param array $mappedData
+     * @param array $fieldMappedData
+     */
+    private function setCompanyFromMappedData(array $fieldMappedData)
+    {
+        $companyFieldMatches = $this->mapData($fieldMappedData, $this->fieldModel->getFieldListWithProperties('company'));
+        if (empty($companyFieldMatches)) {
+            return;
+        }
+
+        list($company, $addContactToCompany, $companyEntity) = IdentifyCompanyHelper::identifyLeadsCompany(
+            $companyFieldMatches,
+            $this->contact,
+            $this->companyModel
+        );
+
+        if (empty($company) || !$companyEntity instanceof Company || !$addContactToCompany) {
+            return;
+        }
+
+        $this->contact->addCompanyChangeLogEntry('form', 'Identify Company', 'Lead added to the company, '.$company['companyname'], $company['id']);
+        $this->companyModel->addLeadToCompany($companyEntity, $this->contact);
+        $this->leadModel->setPrimaryCompany($companyEntity->getId(), $this->contact->getId());
+    }
+
+    /**
+     * @param array $mappedUniqueFieldData
      * @param array $trackedUniqueFieldData
      */
-    private function checkForExistingContact(array $mappedData, array $trackedUniqueFieldData)
+    private function checkForExistingContact(array $mappedUniqueFieldData, array $trackedUniqueFieldData)
     {
-        $duplicateContacts = $this->contactDeduper->findDuplicateContacts($mappedData, $this->contact->getId());
+        // Check for existing contacts from submitted data
+        $duplicateContacts = $this->contactDeduper->findDuplicateContacts($mappedUniqueFieldData, $this->contact->getId());
         if (!count($duplicateContacts)) {
             return;
         }
 
-        $this->logger->debug(count($duplicateContacts).' found based on unique identifiers');
+        $this->logger->debug('FORM: '.count($duplicateContacts).' found based on unique identifiers');
 
         /** @var \Mautic\LeadBundle\Entity\Lead $foundContact */
         $foundContact = $duplicateContacts[0];
@@ -227,6 +203,7 @@ class ContactHelper
         $foundUniqueFieldData = $this->getUniqueFieldValues($foundContact->getProfileFields());
 
         try {
+            // Check for conflicts between the found contact and the tracked contact
             $conflicts = $this->checkForConflicts($foundUniqueFieldData, $trackedUniqueFieldData);
             $this->logger->debug('FORM: Conflicts found in '.implode(', ', $conflicts).' so not merging');
 
@@ -242,11 +219,10 @@ class ContactHelper
                 return;
             }
 
-            $this->logger->debug('FORM: Merging contacts '.$this->contact->getId().' and '.$foundContact->getId());
-
             try {
                 // Merge the found lead with currently tracked lead
                 $this->contact = $this->contactMerger->merge($foundContact, $this->contact);
+                $this->logger->debug('FORM: Merging contacts '.$this->contact->getId().' and '.$foundContact->getId());
             } catch (SameContactException $exception) {
             }
         }
@@ -287,6 +263,12 @@ class ContactHelper
         return $conflicts;
     }
 
+    /**
+     * @param array $submittedData
+     * @param array $fields
+     *
+     * @return array
+     */
     private function mapData(array $submittedData, array $fields)
     {
         $mappedData = [];
@@ -320,5 +302,53 @@ class ContactHelper
         }
 
         return $mappedUniqueFieldData;
+    }
+
+    /**
+     * @param IpAddress $ipAddress
+     */
+    private function prepareAndSaveContact(IpAddress $ipAddress)
+    {
+        $this->addIpAddressToContact($ipAddress);
+
+        // Set last active time
+        $this->contact->setLastActive(new \DateTime());
+
+        // Set the manipulator
+        $this->contact->setManipulator(
+            new LeadManipulator(
+                'form',
+                'submission',
+                $this->form->getId(),
+                $this->form->getName()
+            )
+        );
+
+        $this->leadModel->saveEntity($this->contact, false);
+
+        if (!$this->form->isInKioskMode()) {
+            // Set the current contact which will generate tracking cookies
+            $this->contactTracker->setTrackedContact($this->contact);
+        } else {
+            // Set system current contact which will still allow execution of events without generating tracking cookies
+            $this->contactTracker->setSystemContact($this->contact);
+        }
+    }
+
+    /**
+     * @param IpAddress $ipAddress
+     */
+    private function addIpAddressToContact(IpAddress $ipAddress)
+    {
+        if ($this->form->isInKioskMode()) {
+            return;
+        }
+
+        $ipAddresses = $this->contact->getIpAddresses();
+        if (!$ipAddresses->contains($ipAddress)) {
+            $this->contact->addIpAddress($ipAddress);
+
+            $this->logger->debug('FORM: Associating '.$ipAddress->getIpAddress().' to contact');
+        }
     }
 }
