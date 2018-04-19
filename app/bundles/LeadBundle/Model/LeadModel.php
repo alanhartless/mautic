@@ -2671,6 +2671,8 @@ class LeadModel extends FormModel
     /**
      * Used by system processes that hook into events that use getCurrentLead().
      *
+     * @deprecated 2.13.0 to be removed in 3.0; use ContactTracker::setSystemContact instead
+     *
      * @param Lead $lead
      */
     public function setSystemCurrentLead(Lead $lead = null)

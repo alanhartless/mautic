@@ -13,6 +13,7 @@ namespace Mautic\FormBundle\Model;
 
 use Mautic\CampaignBundle\Model\CampaignModel;
 use Mautic\CoreBundle\Exception\FileUploadException;
+use Mautic\CoreBundle\Factory\MauticFactory;
 use Mautic\CoreBundle\Helper\Chart\ChartQuery;
 use Mautic\CoreBundle\Helper\Chart\LineChart;
 use Mautic\CoreBundle\Helper\DateTimeHelper;
@@ -31,18 +32,12 @@ use Mautic\FormBundle\Exception\FileValidationException;
 use Mautic\FormBundle\Exception\NoFileGivenException;
 use Mautic\FormBundle\Exception\ValidationException;
 use Mautic\FormBundle\FormEvents;
+use Mautic\FormBundle\Helper\ContactHelper;
 use Mautic\FormBundle\Helper\FormFieldHelper;
 use Mautic\FormBundle\Helper\FormUploader;
 use Mautic\FormBundle\Validator\UploadFieldValidator;
-use Mautic\LeadBundle\DataObject\LeadManipulator;
-use Mautic\LeadBundle\Entity\Company;
-use Mautic\LeadBundle\Entity\CompanyChangeLog;
 use Mautic\LeadBundle\Entity\Lead;
-use Mautic\LeadBundle\Helper\IdentifyCompanyHelper;
-use Mautic\LeadBundle\Model\CompanyModel;
-use Mautic\LeadBundle\Model\FieldModel as LeadFieldModel;
-use Mautic\LeadBundle\Model\LeadModel;
-use Mautic\LeadBundle\Tracker\Service\DeviceTrackingService\DeviceTrackingServiceInterface;
+use Mautic\LeadBundle\Tracker\ContactTracker;
 use Mautic\PageBundle\Model\PageModel;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -81,24 +76,9 @@ class SubmissionModel extends CommonFormModel
     protected $pageModel;
 
     /**
-     * @var LeadModel
+     * @var ContactTracker
      */
-    protected $leadModel;
-
-    /**
-     * @var CampaignModel
-     */
-    protected $campaignModel;
-
-    /**
-     * @var LeadFieldModel
-     */
-    protected $leadFieldModel;
-
-    /**
-     * @var CompanyModel
-     */
-    protected $companyModel;
+    protected $contactTracker;
 
     /**
      * @var FormFieldHelper
@@ -115,49 +95,45 @@ class SubmissionModel extends CommonFormModel
      */
     private $formUploader;
 
-    /** @var DeviceTrackingServiceInterface */
-    private $deviceTrackingService;
+    /**
+     * @var ContactHelper
+     */
+    private $contactHelper;
 
     /**
-     * @param IpLookupHelper                 $ipLookupHelper
-     * @param TemplatingHelper               $templatingHelper
-     * @param FormModel                      $formModel
-     * @param PageModel                      $pageModel
-     * @param LeadModel                      $leadModel
-     * @param CampaignModel                  $campaignModel
-     * @param LeadFieldModel                 $leadFieldModel
-     * @param CompanyModel                   $companyModel
-     * @param FormFieldHelper                $fieldHelper
-     * @param UploadFieldValidator           $uploadFieldValidator
-     * @param FormUploader                   $formUploader
-     * @param DeviceTrackingServiceInterface $deviceTrackingService
+     * SubmissionModel constructor.
+     *
+     * @param IpLookupHelper       $ipLookupHelper
+     * @param TemplatingHelper     $templatingHelper
+     * @param FormModel            $formModel
+     * @param PageModel            $pageModel
+     * @param CampaignModel        $campaignModel
+     * @param FormFieldHelper      $fieldHelper
+     * @param UploadFieldValidator $uploadFieldValidator
+     * @param FormUploader         $formUploader
+     * @param ContactHelper        $contactHelper
+     * @param ContactTracker       $contactTracker
      */
     public function __construct(
         IpLookupHelper $ipLookupHelper,
         TemplatingHelper $templatingHelper,
         FormModel $formModel,
         PageModel $pageModel,
-        LeadModel $leadModel,
-        CampaignModel $campaignModel,
-        LeadFieldModel $leadFieldModel,
-        CompanyModel $companyModel,
         FormFieldHelper $fieldHelper,
         UploadFieldValidator $uploadFieldValidator,
         FormUploader $formUploader,
-        DeviceTrackingServiceInterface $deviceTrackingService
+        ContactHelper $contactHelper,
+        ContactTracker $contactTracker
     ) {
-        $this->ipLookupHelper         = $ipLookupHelper;
-        $this->templatingHelper       = $templatingHelper;
-        $this->formModel              = $formModel;
-        $this->pageModel              = $pageModel;
-        $this->leadModel              = $leadModel;
-        $this->campaignModel          = $campaignModel;
-        $this->leadFieldModel         = $leadFieldModel;
-        $this->companyModel           = $companyModel;
-        $this->fieldHelper            = $fieldHelper;
-        $this->uploadFieldValidator   = $uploadFieldValidator;
-        $this->formUploader           = $formUploader;
-        $this->deviceTrackingService  = $deviceTrackingService;
+        $this->ipLookupHelper       = $ipLookupHelper;
+        $this->templatingHelper     = $templatingHelper;
+        $this->formModel            = $formModel;
+        $this->pageModel            = $pageModel;
+        $this->fieldHelper          = $fieldHelper;
+        $this->uploadFieldValidator = $uploadFieldValidator;
+        $this->formUploader         = $formUploader;
+        $this->contactHelper        = $contactHelper;
+        $this->contactTracker       = $contactTracker;
     }
 
     /**
@@ -181,8 +157,6 @@ class SubmissionModel extends CommonFormModel
      */
     public function saveSubmission($post, $server, Form $form, Request $request = null, $returnEvent = false)
     {
-        $leadFields = $this->leadFieldModel->getFieldListWithProperties(false);
-
         //everything matches up so let's save the results
         $submission = new Submission();
         $submission->setDateSubmitted(new \DateTime());
@@ -352,29 +326,18 @@ class SubmissionModel extends CommonFormModel
         // Set the results
         $submission->setResults($results);
 
-        // Update the event
-        $submissionEvent->setFields($fieldArray)
-            ->setTokens($tokens)
-            ->setResults($results)
-            ->setContactFieldMatches($leadFieldMatches);
-
         // @deprecated - BC support; to be removed in 3.0 - be sure to remove the validator option from addSubmitAction as well
         $this->validateActionCallbacks($submissionEvent, $validationErrors, $alias);
 
         // Create/update lead
-        $lead = null;
-        if (!empty($leadFieldMatches)) {
-            $this->createLeadFromSubmit($form, $leadFieldMatches, $leadFields);
-        }
+        $lead = $this->contactHelper->createFromSubmission($submission, $leadFieldMatches, $ipAddress);
 
-        // Get updated lead if applicable with tracking ID
-        /** @var Lead $lead */
-        $lead          = $this->leadModel->getCurrentLead();
-        $trackedDevice = $this->deviceTrackingService->getTrackedDevice();
-        $trackingId    = ($trackedDevice === null ? null : $trackedDevice->getTrackingId());
-        //set tracking ID for stats purposes to determine unique hits
-        $submission->setTrackingId($trackingId)
-            ->setLead($lead);
+        // Update the event
+        $submissionEvent->setFields($fieldArray)
+            ->setTokens($tokens)
+            ->setResults($results)
+            ->setContactFieldMatches($leadFieldMatches)
+            ->setContact($lead);
 
         // Remove validation errors if the field is not visible
         if ($lead && $form->usesProgressiveProfiling()) {
@@ -413,7 +376,7 @@ class SubmissionModel extends CommonFormModel
 
         // Now handle post submission actions
         try {
-            $this->executeFormActions($submissionEvent);
+            $this->executeFormActions($submissionEvent, $lead);
         } catch (ValidationException $exception) {
             // The action invalidated the form for whatever reason
             $this->deleteEntity($submission);
@@ -423,16 +386,6 @@ class SubmissionModel extends CommonFormModel
             }
 
             return ['errors' => [$exception->getMessage()]];
-        }
-
-        if (!$form->isStandalone()) {
-            // Find and add the lead to the associated campaigns
-            $campaigns = $this->campaignModel->getCampaignsByForm($form);
-            if (!empty($campaigns)) {
-                foreach ($campaigns as $campaign) {
-                    $this->campaignModel->addLead($campaign, $lead);
-                }
-            }
         }
 
         if ($this->dispatcher->hasListeners(FormEvents::FORM_ON_SUBMIT)) {
@@ -644,7 +597,7 @@ class SubmissionModel extends CommonFormModel
     /**
      * Get line chart data of submissions.
      *
-     * @param char      $unit          {@link php.net/manual/en/function.date.php#refsect1-function.date-parameters}
+     * @param string    $unit          {@link php.net/manual/en/function.date.php#refsect1-function.date-parameters}
      * @param \DateTime $dateFrom
      * @param \DateTime $dateTo
      * @param string    $dateFormat
@@ -755,7 +708,7 @@ class SubmissionModel extends CommonFormModel
      *
      * @throws ValidationException
      */
-    protected function executeFormActions(SubmissionEvent $event)
+    protected function executeFormActions(SubmissionEvent $event, Lead $lead)
     {
         $actions          = $event->getSubmission()->getForm()->getActions();
         $availableActions = $this->formModel->getCustomComponents()['actions'];
@@ -794,7 +747,7 @@ class SubmissionModel extends CommonFormModel
                 $args['config'] = $action->getProperties();
 
                 // Set the lead each time in case an action updates it
-                $args['lead'] = $this->leadModel->getCurrentLead();
+                $args['lead'] = $this->contactTracker->getContact();
 
                 $callback = $settings['callback'];
                 if (is_callable($callback)) {
@@ -827,230 +780,6 @@ class SubmissionModel extends CommonFormModel
                 }
             }
         }
-    }
-
-    /**
-     * Create/update lead from form submit.
-     *
-     * @param Form  $form
-     * @param array $leadFieldMatches
-     *
-     * @return Lead
-     */
-    protected function createLeadFromSubmit(Form $form, array $leadFieldMatches, $leadFields)
-    {
-        //set the mapped data
-        $inKioskMode   = $form->isInKioskMode();
-        $leadId        = null;
-        $lead          = new Lead();
-        $currentFields = $leadFieldMatches;
-        $companyFields = $this->leadFieldModel->getFieldListWithProperties('company');
-
-        if (!$inKioskMode) {
-            // Default to currently tracked lead
-            if ($currentLead = $this->leadModel->getCurrentLead()) {
-                $lead          = $currentLead;
-                $leadId        = $lead->getId();
-                $currentFields = $lead->getProfileFields();
-            }
-
-            $this->logger->debug('FORM: Not in kiosk mode so using current contact ID #'.$leadId);
-        } else {
-            // Default to a new lead in kiosk mode
-            $lead->setNewlyCreated(true);
-
-            $this->logger->debug('FORM: In kiosk mode so assuming a new contact');
-        }
-
-        $uniqueLeadFields = $this->leadFieldModel->getUniqueIdentifierFields();
-
-        // Closure to get data and unique fields
-        $getData = function ($currentFields, $uniqueOnly = false) use ($leadFields, $uniqueLeadFields) {
-            $uniqueFieldsWithData = $data = [];
-            foreach ($leadFields as $alias => $properties) {
-                if (isset($currentFields[$alias])) {
-                    $value        = $currentFields[$alias];
-                    $data[$alias] = $value;
-
-                    // make sure the value is actually there and the field is one of our uniques
-                    if (!empty($value) && array_key_exists($alias, $uniqueLeadFields)) {
-                        $uniqueFieldsWithData[$alias] = $value;
-                    }
-                }
-            }
-
-            return ($uniqueOnly) ? $uniqueFieldsWithData : [$data, $uniqueFieldsWithData];
-        };
-
-        // Closure to get data and unique fields
-        $getCompanyData = function ($currentFields) use ($companyFields) {
-            $companyData = [];
-            // force add company contact field to company fields check
-            $companyFields = array_merge($companyFields, ['company'=> 'company']);
-            foreach ($companyFields as $alias => $properties) {
-                if (isset($currentFields[$alias])) {
-                    $value               = $currentFields[$alias];
-                    $companyData[$alias] = $value;
-                }
-            }
-
-            return $companyData;
-        };
-
-        // Closure to help search for a conflict
-        $checkForIdentifierConflict = function ($fieldSet1, $fieldSet2) {
-            // Find fields in both sets
-            $potentialConflicts = array_keys(
-                array_intersect_key($fieldSet1, $fieldSet2)
-            );
-
-            $this->logger->debug(
-                'FORM: Potential conflicts '.implode(', ', array_keys($potentialConflicts)).' = '.implode(', ', $potentialConflicts)
-            );
-
-            $conflicts = [];
-            foreach ($potentialConflicts as $field) {
-                if (!empty($fieldSet1[$field]) && !empty($fieldSet2[$field])) {
-                    if (strtolower($fieldSet1[$field]) !== strtolower($fieldSet2[$field])) {
-                        $conflicts[] = $field;
-                    }
-                }
-            }
-
-            return [count($conflicts), $conflicts];
-        };
-
-        // Get data for the form submission
-        list($data, $uniqueFieldsWithData) = $getData($leadFieldMatches);
-        $this->logger->debug('FORM: Unique fields submitted include '.implode(', ', $uniqueFieldsWithData));
-
-        // Check for duplicate lead
-        /** @var \Mautic\LeadBundle\Entity\Lead[] $leads */
-        $leads = (!empty($uniqueFieldsWithData)) ? $this->em->getRepository('MauticLeadBundle:Lead')->getLeadsByUniqueFields(
-            $uniqueFieldsWithData,
-            $leadId
-        ) : [];
-
-        $uniqueFieldsCurrent = $getData($currentFields, true);
-        if (count($leads)) {
-            $this->logger->debug(count($leads).' found based on unique identifiers');
-
-            /** @var \Mautic\LeadBundle\Entity\Lead $foundLead */
-            $foundLead = $leads[0];
-
-            $this->logger->debug('FORM: Testing contact ID# '.$foundLead->getId().' for conflicts');
-
-            // Check for a conflict with the currently tracked lead
-            $foundLeadFields = $this->leadModel->flattenFields($foundLead->getFields());
-
-            // Get unique identifier fields for the found lead then compare with the lead currently tracked
-            $uniqueFieldsFound             = $getData($foundLeadFields, true);
-            list($hasConflict, $conflicts) = $checkForIdentifierConflict($uniqueFieldsFound, $uniqueFieldsCurrent);
-
-            if ($inKioskMode || $hasConflict || !$lead->getId()) {
-                // Use the found lead without merging because there is some sort of conflict with unique identifiers or in kiosk mode and thus should not merge
-                $lead = $foundLead;
-
-                if ($hasConflict) {
-                    $this->logger->debug('FORM: Conflicts found in '.implode(', ', $conflicts).' so not merging');
-                } else {
-                    $this->logger->debug('FORM: In kiosk mode so not merging');
-                }
-            } else {
-                $this->logger->debug('FORM: Merging contacts '.$lead->getId().' and '.$foundLead->getId());
-
-                // Merge the found lead with currently tracked lead
-                $lead = $this->leadModel->mergeLeads($lead, $foundLead);
-            }
-
-            // Update unique fields data for comparison with submitted data
-            $currentFields       = $lead->getProfileFields();
-            $uniqueFieldsCurrent = $getData($currentFields, true);
-        }
-
-        if (!$inKioskMode) {
-            // Check for conflicts with the submitted data and the currently tracked lead
-            list($hasConflict, $conflicts) = $checkForIdentifierConflict($uniqueFieldsWithData, $uniqueFieldsCurrent);
-
-            $this->logger->debug(
-                'FORM: Current unique contact fields '.implode(', ', array_keys($uniqueFieldsCurrent)).' = '.implode(', ', $uniqueFieldsCurrent)
-            );
-
-            $this->logger->debug(
-                'FORM: Submitted unique contact fields '.implode(', ', array_keys($uniqueFieldsWithData)).' = '.implode(', ', $uniqueFieldsWithData)
-            );
-            if ($hasConflict) {
-                // There's a conflict so create a new lead
-                $lead = new Lead();
-                $lead->setNewlyCreated(true);
-
-                $this->logger->debug(
-                    'FORM: Conflicts found in '.implode(', ', $conflicts)
-                    .' between current tracked contact and submitted data so assuming a new contact'
-                );
-            }
-        }
-
-        //check for existing IP address
-        $ipAddress = $this->ipLookupHelper->getIpAddress();
-
-        //no lead was found by a mapped email field so create a new one
-        if ($lead->isNewlyCreated()) {
-            if (!$inKioskMode) {
-                $lead->addIpAddress($ipAddress);
-                $this->logger->debug('FORM: Associating '.$ipAddress->getIpAddress().' to contact');
-            }
-        } elseif (!$inKioskMode) {
-            $leadIpAddresses = $lead->getIpAddresses();
-            if (!$leadIpAddresses->contains($ipAddress)) {
-                $lead->addIpAddress($ipAddress);
-
-                $this->logger->debug('FORM: Associating '.$ipAddress->getIpAddress().' to contact');
-            }
-        }
-
-        //set the mapped fields
-        $this->leadModel->setFieldValues($lead, $data, false, true, true);
-
-        // last active time
-        $lead->setLastActive(new \DateTime());
-
-        //create a new lead
-        $lead->setManipulator(new LeadManipulator(
-            'form',
-            'submission',
-            $form->getId(),
-            $form->getName()
-        ));
-        $this->leadModel->saveEntity($lead, false);
-
-        if (!$inKioskMode) {
-            // Set the current lead which will generate tracking cookies
-            $this->leadModel->setCurrentLead($lead);
-        } else {
-            // Set system current lead which will still allow execution of events without generating tracking cookies
-            $this->leadModel->setSystemCurrentLead($lead);
-        }
-
-        $companyFieldMatches = $getCompanyData($leadFieldMatches);
-        if (!empty($companyFieldMatches)) {
-            list($company, $leadAdded, $companyEntity) = IdentifyCompanyHelper::identifyLeadsCompany($companyFieldMatches, $lead, $this->companyModel);
-            if ($leadAdded) {
-                $lead->addCompanyChangeLogEntry('form', 'Identify Company', 'Lead added to the company, '.$company['companyname'], $company['id']);
-            } elseif ($companyEntity instanceof Company) {
-                $this->companyModel->setFieldValues($companyEntity, $companyFieldMatches);
-                $this->companyModel->saveEntity($companyEntity);
-            }
-
-            if (!empty($company) and $companyEntity instanceof Company) {
-                // Save after the lead in for new leads created through the API and maybe other places
-                $this->companyModel->addLeadToCompany($companyEntity, $lead);
-                $this->leadModel->setPrimaryCompany($companyEntity->getId(), $lead->getId());
-            }
-            $this->em->clear(CompanyChangeLog::class);
-        }
-
-        return $lead;
     }
 
     /**
@@ -1094,8 +823,8 @@ class SubmissionModel extends CommonFormModel
      *
      * @param Action[]        $actions
      * @param SubmissionEvent $event
-     * @param                 $validationErrors
-     * @param                 $lastAlias        Because prior to now the last alias was used regardless
+     * @param array           $validationErrors
+     * @param string          $lastAlias        Because prior to now the last alias was used regardless
      */
     protected function validateActionCallbacks(SubmissionEvent $event, &$validationErrors, $lastAlias)
     {

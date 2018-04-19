@@ -168,6 +168,12 @@ return [
                     'mautic.lead.model.company_report_data',
                 ],
             ],
+            'mautic.campaign.form.subscriber' => [
+                'class'     => \Mautic\CampaignBundle\EventListener\FormSubscriber::class,
+                'arguments' => [
+                    'mautic.campaign.model.campaign',
+                ],
+            ],
         ],
         'forms' => [
             'mautic.campaign.type.form' => [
