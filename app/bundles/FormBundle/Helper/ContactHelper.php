@@ -105,10 +105,9 @@ class ContactHelper
     }
 
     /**
-     * Create/update lead from form submit.
-     *
-     * @param Form  $this->form
-     * @param array $this->contactFieldMatches
+     * @param Submission $submission
+     * @param array      $fieldMappedData
+     * @param IpAddress  $ipAddress
      *
      * @return Lead
      */
@@ -161,7 +160,10 @@ class ContactHelper
      */
     private function setCompanyFromMappedData(array $fieldMappedData)
     {
-        $companyFieldMatches = $this->mapData($fieldMappedData, $this->fieldModel->getFieldListWithProperties('company'));
+        // force add company contact field to company fields check
+        $companyFields       = $this->fieldModel->getFieldListWithProperties('company');
+        $companyFields       = array_merge($companyFields, ['company' => 'company']);
+        $companyFieldMatches = $this->mapData($fieldMappedData, $companyFields);
         if (empty($companyFieldMatches)) {
             return;
         }
@@ -175,6 +177,9 @@ class ContactHelper
         if (empty($company) || !$companyEntity instanceof Company || !$addContactToCompany) {
             return;
         }
+
+        $this->companyModel->setFieldValues($companyEntity, $companyFieldMatches);
+        $this->companyModel->saveEntity($companyEntity);
 
         $this->contact->addCompanyChangeLogEntry('form', 'Identify Company', 'Lead added to the company, '.$company['companyname'], $company['id']);
         $this->companyModel->addLeadToCompany($companyEntity, $this->contact);
