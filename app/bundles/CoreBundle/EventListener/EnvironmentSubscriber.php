@@ -29,17 +29,10 @@ class EnvironmentSubscriber implements EventSubscriberInterface
      */
     private $coreParametersHelper;
 
-    /**
-     * System params.
-     *
-     * @var array
-     */
-    private $params;
-
-    public function __construct(CookieHelper $cookieHelper, array $params)
+    public function __construct(CookieHelper $cookieHelper, CoreParametersHelper $coreParametersHelper)
     {
-        $this->cookieHelper = $cookieHelper;
-        $this->params       = $params;
+        $this->cookieHelper               = $cookieHelper;
+        $this->coreParametersHelper       = $coreParametersHelper;
     }
 
     /**
@@ -69,7 +62,7 @@ class EnvironmentSubscriber implements EventSubscriberInterface
         }
 
         // Set date/time
-        date_default_timezone_set($request->getSession()->get('_timezone', $this->params['default_timezone']));
+        date_default_timezone_set($request->getSession()->get('_timezone', $this->coreParametersHelper->getParameter('default_timezone')));
     }
 
     /**
@@ -87,7 +80,7 @@ class EnvironmentSubscriber implements EventSubscriberInterface
         if ($locale = $request->attributes->get('_locale')) {
             $request->getSession()->set('_locale', $locale);
         } else {
-            $request->setLocale($request->getSession()->get('_locale', $this->params['locale']));
+            $request->setLocale($request->getSession()->get('_locale', $this->coreParametersHelper->getParameter('locale')));
         }
     }
 }

@@ -164,7 +164,6 @@ return [
                     'translator',
                     'request_stack',
                     'mautic.form.repository.form',
-                    '%mautic.parameters%',
                     'mautic.factory',
                 ],
             ],
@@ -172,7 +171,7 @@ return [
                 'class'     => \Mautic\CoreBundle\EventListener\EnvironmentSubscriber::class,
                 'arguments' => [
                     'mautic.helper.cookie',
-                    '%mautic.parameters%',
+                    'mautic.helper.core_parameters',
                 ],
             ],
             'mautic.core.configbundle.subscriber' => [
@@ -470,15 +469,15 @@ return [
             'mautic.helper.core_parameters' => [
                 'class'     => 'Mautic\CoreBundle\Helper\CoreParametersHelper',
                 'arguments' => [
-                    'kernel',
+                    '%kernel.root_dir%',
                 ],
                 'serviceAlias' => 'mautic.config',
             ],
             'mautic.helper.bundle' => [
                 'class'     => 'Mautic\CoreBundle\Helper\BundleHelper',
                 'arguments' => [
-                    'mautic.helper.core_parameters',
-                    'kernel',
+                    '%mautic.bundles%',
+                    '%mautic.plugin.bundles%',
                 ],
             ],
             'mautic.helper.phone_number' => [
@@ -636,7 +635,7 @@ return [
                 'arguments' => [
                     'mautic.helper.user',
                     'translator',
-                    '%mautic.parameters%',
+                    'mautic.helper.core_parameters',
                     '%mautic.bundles%',
                     '%mautic.plugin.bundles%',
                 ],
@@ -681,6 +680,7 @@ return [
                 'class'     => \Mautic\CoreBundle\Helper\AssetGenerationHelper::class,
                 'arguments' => [
                     'mautic.helper.core_parameters',
+                    'mautic.helper.bundle',
                     'mautic.helper.paths',
                     'mautic.helper.app_version',
                 ],
@@ -768,7 +768,7 @@ return [
                 'arguments' => [
                     'mautic.security',
                     'request_stack',
-                    '%mautic.parameters%',
+                    'mautic.helper.core_parameters',
                     'mautic.helper.integration',
                 ],
             ],
@@ -994,9 +994,9 @@ return [
         'db_server_version'               => '5.5',
         'locale'                          => 'en_US',
         'secret_key'                      => '',
-        'dev_hosts'                       => null,
-        'trusted_hosts'                   => null,
-        'trusted_proxies'                 => null,
+        'dev_hosts'                       => [],
+        'trusted_hosts'                   => [],
+        'trusted_proxies'                 => [],
         'rememberme_key'                  => hash('sha1', uniqid(mt_rand())),
         'rememberme_lifetime'             => 31536000, //365 days in seconds
         'rememberme_path'                 => '/',
