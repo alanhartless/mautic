@@ -449,6 +449,9 @@ return [
                 'arguments' => [
                     'mautic.helper.user',
                     'mautic.helper.core_parameters',
+                    '%kernel.cache_dir%',
+                    '%kernel.logs_dir%',
+                    '%kernel.root_dir%',
                 ],
             ],
             'mautic.helper.ip_lookup' => [
@@ -717,9 +720,12 @@ return [
                     'mautic.http.connector',
                 ],            ],
             'mautic.helper.cache' => [
-                'class'     => 'Mautic\CoreBundle\Helper\CacheHelper',
+                'class'     => \Mautic\CoreBundle\Helper\CacheHelper::class,
                 'arguments' => [
-                    'kernel',
+                    '%kernel.cache_dir%',
+                    '%kernel.root_dir%',
+                    'session',
+                    'mautic.helper.paths',
                 ],
             ],
             'mautic.helper.templating' => [
