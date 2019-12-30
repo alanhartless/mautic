@@ -308,7 +308,6 @@ return [
                 'class'     => \Mautic\UserBundle\Security\SAML\Store\EntityDescriptorStore::class,
                 'arguments' => [
                     'mautic.helper.core_parameters',
-                    '%mautic.saml_idp_entity_id%',
                 ],
                 'tag'       => 'lightsaml.idp_entity_store',
             ],
@@ -322,7 +321,7 @@ return [
             ],
 
             'mautic.security.saml.username_mapper' => [
-                'class'     => \Mautic\UserBundle\Security\User\UserMapper::class,
+                'class'     => \Mautic\UserBundle\Security\SAML\User\UserMapper::class,
                 'arguments' => [
                     [
                         'email'     => '%mautic.saml_idp_email_attribute%',
@@ -334,10 +333,10 @@ return [
             ],
 
             'mautic.security.saml.user_creator' => [
-                'class'     => 'Mautic\UserBundle\Security\User\UserCreator',
+                'class'     => \Mautic\UserBundle\Security\SAML\User\UserCreator::class,
                 'arguments' => [
                     'doctrine.orm.entity_manager',
-                    'lightsaml_sp.username_mapper.simple',
+                    'mautic.security.saml.username_mapper',
                     'mautic.user.model.user',
                     'security.encoder_factory',
                     '%mautic.saml_idp_default_role%',
