@@ -60,11 +60,6 @@ class AppKernel extends Kernel
     private $installed;
 
     /**
-     * @var array
-     */
-    private $localParameters = [];
-
-    /**
      * @var ParameterLoader|null
      */
     private $parameterLoader;
@@ -265,7 +260,9 @@ class AppKernel extends Kernel
             return;
         }
 
+        // load parameters with defaults into the environment
         $parameterLoader = $this->getParameterLoader();
+        $parameterLoader->loadIntoEnvironment();
 
         if (!defined('MAUTIC_TABLE_PREFIX')) {
             //set the table prefix before boot
@@ -274,9 +271,6 @@ class AppKernel extends Kernel
 
         // init bundles
         $this->initializeBundles();
-
-        // load parameters with defaults into the environment
-        $parameterLoader->loadIntoEnvironment();
 
         // init container
         $this->initializeContainer();
