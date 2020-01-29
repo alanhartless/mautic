@@ -161,6 +161,7 @@ return [
                     'mautic.plugin.model.plugin',
                     'mautic.plugin.helper.reload',
                     'translator',
+                    'mautic.helper.bundle',
                 ],
             ],
         ],

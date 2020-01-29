@@ -83,16 +83,6 @@ class PluginModel extends FormModel
     }
 
     /**
-     * Loads config.php arrays for all plugins.
-     *
-     * @return array
-     */
-    public function getAllPluginsConfig()
-    {
-        return $this->coreParametersHelper->get('plugin.bundles');
-    }
-
-    /**
      * Loads all installed Plugin entities from database.
      *
      * @return array

@@ -321,6 +321,7 @@ public function onConfigGenerate(ConfigBuilderEvent $event)
 *   Removed \PluginBundle\Controller\AjaxController::getIntegrationCompanyFieldsAction()
 *   Removed constructor from \Mautic\PluginBundle\Form\Type\FieldsType
 *   Removed constructor from \Mautic\PluginBundle\Form\Type\CompanyFieldsType
+*   Removed Mautic\PluginBundle\Model\PluginModel::getAllPluginsConfig(); use Mautic\CoreBundle\Helper\BundleHelper::getPluginBundles() instead
 
 ### SMSBundle
 

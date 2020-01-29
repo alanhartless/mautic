@@ -11,6 +11,7 @@
 
 namespace Mautic\PluginBundle\Facade;
 
+use Mautic\CoreBundle\Helper\BundleHelper;
 use Mautic\PluginBundle\Helper\ReloadHelper;
 use Mautic\PluginBundle\Model\PluginModel;
 use Symfony\Component\Translation\TranslatorInterface;
@@ -20,12 +21,14 @@ class ReloadFacade
     private $pluginModel;
     private $reloadHelper;
     private $translator;
+    private $bundleHelper;
 
-    public function __construct(PluginModel $pluginModel, ReloadHelper $reloadHelper, TranslatorInterface $translator)
+    public function __construct(PluginModel $pluginModel, ReloadHelper $reloadHelper, TranslatorInterface $translator, BundleHelper $bundleHelper)
     {
         $this->pluginModel  = $pluginModel;
         $this->reloadHelper = $reloadHelper;
         $this->translator   = $translator;
+        $this->bundleHelper = $bundleHelper;
     }
 
     /**
@@ -38,7 +41,7 @@ class ReloadFacade
      */
     public function reloadPlugins()
     {
-        $plugins                 = $this->pluginModel->getAllPluginsConfig();
+        $plugins                 = $this->bundleHelper->getPluginBundles();
         $pluginMetadata          = $this->pluginModel->getPluginsMetadata();
         $installedPlugins        = $this->pluginModel->getInstalledPlugins();
         $installedPluginTables   = $this->pluginModel->getInstalledPluginTables($pluginMetadata);
