@@ -68,7 +68,7 @@ class GravatarHelper extends Helper
         $this->assetHelper  = $assetHelper;
         $this->avatarHelper = $avatarHelper;
         $this->requestStack = $requestStack;
-        $this->devHosts     = (array) $coreParametersHelper->getParameter('dev_hosts');
+        $this->devHosts     = (array) $coreParametersHelper->get('dev_hosts');
     }
 
     /**
