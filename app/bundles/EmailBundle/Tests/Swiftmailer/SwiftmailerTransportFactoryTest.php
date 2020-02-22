@@ -64,6 +64,28 @@ class SwiftmailerTransportFactoryTest extends TestCase
         $this->assertInstanceOf(SparkpostTransport::class, $foundTransport);
     }
 
+    public function testExceptionIsThrownIfServiceReturnedIsNotATransport()
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $transport = 'mautic.transport.sparkpost';
+        $this->container->expects($this->once())
+            ->method('has')
+            ->with($transport)
+            ->willReturn(true);
+
+        $this->container->expects($this->once())
+            ->method('get')
+            ->with($transport)
+            ->willReturn(new \stdClass());
+
+        $options = ['transport' => $transport];
+
+        $foundTransport = SwiftmailerTransportFactory::createTransport($options, $this->requestContext, $this->eventDispatcher, $this->container);
+
+        $this->assertInstanceOf(SparkpostTransport::class, $foundTransport);
+    }
+
     public function testExceptionIsThrownIfServiceNotFound()
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -97,5 +119,22 @@ class SwiftmailerTransportFactoryTest extends TestCase
         $transport = SwiftmailerTransportFactory::createTransport($options, $this->requestContext, $this->eventDispatcher, $this->container);
 
         $this->assertInstanceOf(\Swift_Transport_EsmtpTransport::class, $transport);
+    }
+
+    public function testSendmailTransportIsReturnedForRemovedMailSupport()
+    {
+        $this->container->expects($this->once())
+            ->method('has')
+            ->with('sendmail')
+            ->willReturn(false);
+
+        $this->container->expects($this->never())
+            ->method('get');
+
+        $options = ['transport' => 'mail'];
+
+        $transport = SwiftmailerTransportFactory::createTransport($options, $this->requestContext, $this->eventDispatcher, $this->container);
+
+        $this->assertInstanceOf(\Swift_Transport_SendmailTransport::class, $transport);
     }
 }

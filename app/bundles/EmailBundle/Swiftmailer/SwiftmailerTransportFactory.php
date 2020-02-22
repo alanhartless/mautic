@@ -23,14 +23,25 @@ class SwiftmailerTransportFactory
         \Swift_Events_EventDispatcher $eventDispatcher,
         ContainerInterface $container
     ) {
-        // Try to get the transport from the container
         $options   = TransportFactory::resolveOptions($options);
         $transport = $options['transport'] ?? null;
 
-        if ($transport && $container->has($transport)) {
-            return $container->get($transport);
+        // Mail is not longer supported
+        if ('mail' === $transport) {
+            $transport = $options['transport'] = 'sendmail';
         }
 
+        // Try to get the transport from the container
+        if ($transport && $container->has($transport)) {
+            $service =  $container->get($transport);
+
+            // Ensure that this service is an actual transport
+            if ($service instanceof \Swift_Transport) {
+                return $service;
+            }
+        }
+
+        // An applicable service was not found so use Swiftmailer's default factory
         return TransportFactory::createTransport($options, $requestContext, $eventDispatcher);
     }
 }
